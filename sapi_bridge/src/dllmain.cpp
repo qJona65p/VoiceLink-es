@@ -147,8 +147,8 @@ static std::wstring ReadSelectedModel()
     LONG result = RegQueryValueExW(hKey, L"SelectedModel", nullptr, &type, reinterpret_cast<BYTE *>(buf), &bufSize);
     RegCloseKey(hKey);
 
-    if (result != ERROR_SUCCESS || type != REG_SZ) 92 return {};
-        return buf;
+    if (result != ERROR_SUCCESS || type != REG_SZ) return {};
+    return buf;
 }
 
 // ============================================================================
