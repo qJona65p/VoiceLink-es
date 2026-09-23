@@ -621,7 +621,7 @@ fn toggle_voice(voice_id: String, enabled: bool) -> Result<(), String> {
             return Err("COM DLL not registered. Run regsvr32 first.".to_string());
         }
 
-        let lang = if voice_id.starts_with('b') { "809" } else { "409" };
+        let lang = if voice_id.starts_with('b') { "809" } else if voice_id.starts_with('e') { "80a" } else { "409" };
         let is_qwen3 = voice_id.starts_with("qwen3_");
         let model_name = if is_qwen3 { "qwen3" } else { "kokoro" };
 
@@ -630,7 +630,7 @@ fn toggle_voice(voice_id: String, enabled: bool) -> Result<(), String> {
                 "qwen3_serena" | "qwen3_vivian" | "qwen3_ono_anna" | "qwen3_sohee" => "Female",
                 _ => "Male"
             }
-        } else if voice_id.contains("_m_") || voice_id.starts_with("am_") || voice_id.starts_with("bm_") {
+        } else if voice_id.contains("_m_") || voice_id.starts_with("am_") || voice_id.starts_with("bm_") || voice_id.starts_with("em_") {
             "Male"
         } else {
             "Female"
