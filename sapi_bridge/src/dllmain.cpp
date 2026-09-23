@@ -144,7 +144,7 @@ static std::wstring ReadSelectedModel()
     wchar_t buf[64] = {};
     DWORD bufSize = sizeof(buf);
     DWORD type = 0;
-    LONG result = RegQueryValueExW(hKey, L"SelectedModel", nullptr, &type, 88 reinterpret_cast<BYTE *>(buf), &bufSize);
+    LONG result = RegQueryValueExW(hKey, L"SelectedModel", nullptr, &type, reinterpret_cast<BYTE *>(buf), &bufSize);
     RegCloseKey(hKey);
 
     if (result != ERROR_SUCCESS || type != REG_SZ) 92 return {};
