@@ -52,6 +52,7 @@ interface AppSettings {
   data_dir: string;
   server_port: number;
   auto_start: boolean;
+  selected_model: string;
   qwen3_enabled: boolean;
   qwen3_model_tier: string;
   qwen3_installed: boolean;
@@ -64,6 +65,7 @@ interface SetupStatus {
   model_downloaded: boolean;
   server_running: boolean;
   data_dir: string;
+  selected_model: string;
 }
 
 interface SetupPaths {
@@ -840,9 +842,52 @@ with open(marker, 'w') as f:
 print('DONE', flush=True)
 `;
 
+// Piper voices from rhasspy/piper-voices on HuggingFace
+const PIPER_DOWNLOAD_SCRIPT = `
+import sys, os, urllib.request
+from pathlib import Path
+
+data_dir = Path(os.environ.get('VOICELINK_DATA_DIR', '.'))
+voices_dir = data_dir / 'models' / 'piper'
+voices_dir.mkdir(parents=True, exist_ok=True)
+
+BASE = 'https://huggingface.co/rhasspy/piper-voices/resolve/main'
+voices = [
+    ('en_US-ryan-high', 'en/en_US/ryan/high/en_US-ryan-high'),
+    ('en_US-hfc_male-medium', 'en/en_US/hfc_male/medium/en_US-hfc_male-medium'),
+    ('en_US-hfc_female-medium', 'en/en_US/hfc_female/medium/en_US-hfc_female-medium'),
+    ('en_US-lessac-high', 'en/en_US/lessac/high/en_US-lessac-high'),
+    ('es_MX-claude-high', 'es/es_MX/claude/high/es_MX-claude-high'),
+    ('es_ES-davefx-medium', 'es/es_ES/davefx/medium/es_ES-davefx-medium'),
+    ('es_ES-sharvard-medium', 'es/es_ES/sharvard/medium/es_ES-sharvard-medium'),
+]
+
+for i, (vid, rel) in enumerate(voices, 1):
+    for ext in ('.onnx', '.onnx.json'):
+        url = f'{BASE}/{rel}{ext}'
+        dest = voices_dir / f'{vid}{ext}'
+        if dest.exists() and dest.stat().st_size > 1000:
+            print(f'[{i}/{len(voices)}] {vid}{ext} already present', flush=True)
+            continue
+        print(f'[{i}/{len(voices)}] Downloading {vid}{ext}...', flush=True)
+        try:
+            urllib.request.urlretrieve(url, dest)
+        except Exception as e:
+            print(f'ERROR downloading {url}: {e}', flush=True)
+            sys.exit(1)
+        print(f'  saved {dest} ({dest.stat().st_size} bytes)', flush=True)
+
+marker = data_dir / '.piper_ready'
+marker.write_text(','.join(v for v, _ in voices))
+print('All Piper voices ready.', flush=True)
+print('DONE', flush=True)
+`;
+
 type StepName = "python" | "deps" | "server" | "model" | "start";
 
 let setupRunning = false;
+/** User's model choice for this setup run: "kokoro" | "piper" | null */
+let selectedSetupModel: "kokoro" | "piper" | null = null;
 let stepStartTime: number | null = null;
 let elapsedTimerId: number | null = null;
 
@@ -962,6 +1007,12 @@ async function refreshSetupStatus() {
 
 async function runSetup() {
   if (setupRunning) return;
+
+  if (!selectedSetupModel) {
+    setOverallStatus("Please choose Piper or Kokoro above before running setup.", "error");
+    return;
+  }
+
   setupRunning = true;
 
   const btn = document.getElementById("btn-run-setup") as HTMLButtonElement;
@@ -971,8 +1022,12 @@ async function runSetup() {
   }
 
   try {
+    setOverallStatus(`Saving model choice (${selectedSetupModel})...`);
+    await invoke("set_selected_model", { model: selectedSetupModel });
+
     const status: SetupStatus = await invoke("get_setup_status");
     const paths: SetupPaths = await invoke("get_setup_paths");
+    const model = selectedSetupModel;
 
     // Step 1: Download & install Python
     if (!status.python_installed) {
@@ -1025,7 +1080,7 @@ async function runSetup() {
       setOverallStatus("Installing Python packages...");
       startElapsedTimer("deps");
 
-      // Install main deps
+      // Shared server deps
       await invoke("setup_run_command", {
         program: paths.python_exe,
         args: [
@@ -1036,19 +1091,31 @@ async function runSetup() {
           "pyyaml>=6.0",
           "soundfile>=0.13.0",
           "numpy>=1.26.0,<2.0",
+          "scipy>=1.11.0",
           "loguru>=0.7.0",
         ],
         stepName: "deps",
       });
 
-      setStepProgress("deps", 60, "Installing Kokoro...");
-
-      // Install kokoro separately (it's a bigger install)
-      await invoke("setup_run_command", {
-        program: paths.python_exe,
-        args: ["-m", "pip", "install", "--no-warn-script-location", "kokoro>=0.3"],
-        stepName: "deps",
-      });
+      if (model === "kokoro") {
+        setStepProgress("deps", 60, "Installing Kokoro...");
+        await invoke("setup_run_command", {
+          program: paths.python_exe,
+          args: ["-m", "pip", "install", "--no-warn-script-location", "kokoro>=0.3", "soundfile"],
+          stepName: "deps",
+        });
+      } else {
+        setStepProgress("deps", 60, "Installing Piper...");
+        await invoke("setup_run_command", {
+          program: paths.python_exe,
+          args: [
+            "-m", "pip", "install", "--no-warn-script-location",
+            "piper-tts>=1.4,<2",
+            "onnxruntime>=1.17.0",
+          ],
+          stepName: "deps",
+        });
+      }
 
       stopElapsedTimer();
       setStepIcon("deps", "done");
@@ -1072,21 +1139,31 @@ async function runSetup() {
       setStepIcon("server", "done");
     }
 
-    // Step 4: Download model + voicepacks from HuggingFace
+    // Step 4: Download model assets for the chosen backend
     if (!status.model_downloaded) {
       setStepIcon("model", "running");
       showStepProgress("model", true);
-      setOverallStatus("Downloading voice model & voicepacks (~340 MB)...");
       startElapsedTimer("model");
 
-      // Run a Python script that downloads the model and all 11 voicepacks
-      // via huggingface_hub. This ensures every voice works on first use.
-      await invoke("setup_run_command", {
-        program: paths.python_exe,
-        args: ["-c", VOICEPACK_DOWNLOAD_SCRIPT],
-        stepName: "model",
-        env: { VOICELINK_DATA_DIR: paths.data_dir },
-      });
+      if (model === "piper") {
+        setStepProgress("model", 0, "Downloading Piper voices...");
+        setOverallStatus("Downloading Piper voices from HuggingFace...");
+        await invoke("setup_run_command", {
+          program: paths.python_exe,
+          args: ["-c", PIPER_DOWNLOAD_SCRIPT],
+          stepName: "model",
+          env: { VOICELINK_DATA_DIR: paths.data_dir },
+        });
+      } else {
+        setStepProgress("model", 0, "Downloading Kokoro model & voicepacks...");
+        setOverallStatus("Downloading Kokoro model and voicepacks (~340 MB)...");
+        await invoke("setup_run_command", {
+          program: paths.python_exe,
+          args: ["-c", VOICEPACK_DOWNLOAD_SCRIPT],
+          stepName: "model",
+          env: { VOICELINK_DATA_DIR: paths.data_dir },
+        });
+      }
 
       stopElapsedTimer();
       setStepIcon("model", "done");
@@ -1148,7 +1225,47 @@ async function runSetup() {
   }
 }
 
+function updateModelStepLabels(model: "kokoro" | "piper") {
+  const desc = document.getElementById("step-desc-model");
+  if (desc) {
+    desc.textContent =
+      model === "piper"
+        ? "Piper ONNX voices (~50-100 MB download per voice)"
+        : "Kokoro neural voice model + voicepacks (~340 MB download)";
+  }
+  const depsDesc = document.getElementById("step-desc-deps");
+  if (depsDesc) {
+    depsDesc.textContent =
+      model === "piper"
+        ? "FastAPI, Uvicorn, Piper, ONNX Runtime"
+        : "FastAPI, Uvicorn, Kokoro, and supporting packages";
+  }
+}
+
+function setupModelPicker() {
+  const cards = document.querySelectorAll<HTMLElement>(".model-card");
+  const btn = document.getElementById("btn-run-setup") as HTMLButtonElement | null;
+
+  cards.forEach((card) => {
+    card.addEventListener("click", () => {
+      cards.forEach((c) => c.classList.remove("selected"));
+      card.classList.add("selected");
+      const model = card.dataset.model as "kokoro" | "piper";
+      selectedSetupModel = model;
+      updateModelStepLabels(model);
+      if (btn) btn.disabled = false;
+      setOverallStatus(`Selected ${model === "piper" ? "Piper" : "Kokoro"}. Click Run Setup when ready.`);
+    });
+  });
+
+  // Disable Run Setup until a model is chosen
+  if (btn && !selectedSetupModel) {
+    btn.disabled = true;
+  }
+}
+
 function setupSetupWizard() {
+  setupModelPicker();
   const btn = document.getElementById("btn-run-setup");
   btn?.addEventListener("click", runSetup);
 

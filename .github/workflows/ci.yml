@@ -4,6 +4,10 @@
 # Runs on every push and pull request to main.
 # Builds the SAPI COM DLL and the Tauri GUI to catch compile errors early.
 # Does NOT produce a release — see release.yml for that.
+#
+# The installer ships both backends (Kokoro + Piper). Model selection
+# happens at first-run setup (writes HKLM\SOFTWARE\VoiceLink\SelectedModel
+# and re-registers the SAPI DLL so only that model's voices appear).
 
 name: CI
 

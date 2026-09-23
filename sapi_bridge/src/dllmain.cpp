@@ -57,11 +57,16 @@ LONG g_objectCount = 0; // Incremented when a VoiceLinkEngine is created
 //
 // Each entry here becomes a SAPI voice token in the registry.
 // All voices share the same CLSID (same engine), but the engine reads
-// the VoiceLinkVoiceId attribute to know which voice to request.
+// the VoiceLinkVoiceId / VoiceLinkModel attributes to know to know which voice
+// and backend to request from the inference server.
+//
+// MODEL SELECTION (install-time):
+//   The installer writes HKLM\SOFTWARE\VoiceLink\SelectedModel = "kokoro"
+//   or "piper". DllRegisterServer only registers voices for that model.
+//   If the key is missing, both sets are registered.
 //
 // The Language field uses LCID (Locale ID) in hex:
-//   409 = en-US (English, United States)
-//   809 = en-GB (English, United Kingdom)
+//   409 = en-US, 809 = en-GB, 80a = es-MX, c0a = es-ES
 //
 // SAPI uses these attributes for voice selection:
 //   - Name: display name in voice picker
@@ -74,13 +79,14 @@ struct VoiceDefinition
     const wchar_t *tokenName;   // Registry key name (e.g., "VoiceLink_af_heart")
     const wchar_t *displayName; // Friendly name (e.g., "VoiceLink Kokoro Heart")
     const wchar_t *voiceId;     // ID sent to inference server (e.g., "af_heart")
+    const wchar_t *model;       // Backend: "kokoro" or "piper"
     const wchar_t *gender;      // "Female" or "Male"
     const wchar_t *language;    // LCID in hex (e.g., "409" for en-US)
     const wchar_t *age;         // "Adult", "Child", etc.
 };
-
+                  
 // All 14 Kokoro voices, matching server/models/kokoro_model.py
-static const VoiceDefinition g_voices[] = {
+static const VoiceDefinition g_kokoroVoices[] = {
     // American English Female voices
     {L"VoiceLink_af_heart", L"Heart (Kokoro)", L"af_heart", L"Female", L"409", L"Adult"},
     {L"VoiceLink_af_bella", L"Bella (Kokoro)", L"af_bella", L"Female", L"409", L"Adult"},
@@ -108,7 +114,42 @@ static const VoiceDefinition g_voices[] = {
     {L"VoiceLink_em_santa", L"Santa (Kokoro)", L"em_santa", L"Male", L"80a", L"Adult"},
 };
 
-static constexpr size_t g_voiceCount = _countof(g_voices);
+// Piper voices — matching server/models/piper_model.py
+// Token names use underscores (registry-safe); voiceId keeps Piper's hyphen form.
+static const VoiceDefinition g_piperVoices[] = {
+    // American English voices
+    {L"VoiceLink_en_US_ryan_high", L"Ryan (Piper)", L"en_US-ryan-high", L"piper", L"Male", L"409", L"Adult"},
+    {L"VoiceLink_en_US_hfc_male_medium", L"HFC Male (Piper)", L"en_US-hfc_male-medium", L"piper", L"Male", L"409", L"Adult"},
+    {L"VoiceLink_en_US_hfc_female_medium", L"HFC Female (Piper)", L"en_US-hfc_female-medium", L"piper", L"Female", L"409", L"Adult"},
+    {L"VoiceLink_en_US_lessac_high", L"Lessac (Piper)", L"en_US-lessac-high", L"piper", L"Female", L"409", L"Adult"},
+
+    // Spanish (Spain)
+    {L"VoiceLink_es_ES_davefx_medium", L"Davefx (Piper)", L"es_ES-davefx-medium", L"piper", L"Male", L"c0a", L"Adult"},
+    {L"VoiceLink_es_ES_sharvard_medium", L"Sharvard (Piper)", L"es_ES-sharvard-medium", L"piper", L"Male", L"c0a", L"Adult"},
+    // Spanish (Mexico)
+    {L"VoiceLink_es_MX_claude_high", L"Claude (Piper)", L"es_MX-claude-high", L"piper", L"Female", L"80a", L"Adult"},
+};
+
+static constexpr size_t g_kokoroVoiceCount = _countof(g_kokoroVoices);
+static constexpr size_t g_piperVoiceCount = _countof(g_piperVoices);
+
+// Read the install-time model selection from the registry.
+// Returns "kokoro", "piper", or empty string (register both).
+static std::wstring ReadSelectedModel()
+{
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\VoiceLink", 0, KEY_READ, &hKey) != ERROR_SUCCESS)
+        return {};
+    
+    wchar_t buf[64] = {};
+    DWORD bufSize = sizeof(buf);
+    DWORD type = 0;
+    LONG result = RegQueryValueExW(hKey, L"SelectedModel", nullptr, &type, 88 reinterpret_cast<BYTE *>(buf), &bufSize);
+    RegCloseKey(hKey);
+
+    if (result != ERROR_SUCCESS || type != REG_SZ) 92 return {};
+        return buf;
+}
 
 // ============================================================================
 // DllMain — DLL Entry Point
@@ -385,7 +426,34 @@ STDAPI DllRegisterServer()
     //
     // We register in BOTH so every app can discover VoiceLink voices.
     // The NaturalVoiceSAPIAdapter project does the same thing.
+    //
+    // Install-time model selection (HKLM\SOFTWARE\VoiceLink\SelectedModel):
+    //   "kokoro" → only Kokoro voices
+    //   "piper"  → only Piper voices
+    //   missing  → both (handy during development)
     // -----------------------------------------------------------------------
+    std::wstring selectedModel = ReadSelectedModel();
+    const bool regKokoro = selectedModel.empty() || _wcsicmp(selectedModel.c_str(), L"kokoro") == 0;
+    const bool regPiper = selectedModel.empty() || _wcsicmp(selectedModel.c_str(), L"piper") == 0;
+
+    if (!selectedModel.empty())
+        VLOG(L"SelectedModel from registry: %s", selectedModel.c_str());
+    else
+        VLOG(L"No SelectedModel key — registering both Kokoro and Piper voices");
+
+    // Build the active list of voices to register
+    std::vector<const VoiceDefinition *> activeVoices;
+    if (regKokoro)
+    {
+        for (size_t i = 0; i < g_kokoroVoiceCount; ++i)
+            activeVoices.push_back(&g_kokoroVoices[i]);
+    }
+    if (regPiper)
+    {
+        for (size_t i = 0; i < g_piperVoiceCount; ++i)
+            activeVoices.push_back(&g_piperVoices[i]);
+    }
+
     const wchar_t *tokenRoots[] = {
         L"SOFTWARE\\Microsoft\\Speech\\Voices\\Tokens",
         L"SOFTWARE\\Microsoft\\Speech_OneCore\\Voices\\Tokens",
@@ -395,9 +463,9 @@ STDAPI DllRegisterServer()
     {
         VLOG(L"Registering voices under: %s", tokensRoot);
 
-        for (size_t i = 0; i < g_voiceCount; ++i)
+        for (const VoiceDefinition *pVoice : activeVoices)
         {
-            const VoiceDefinition &voice = g_voices[i];
+            const VoiceDefinition &voice = *pVoice;
 
             std::wstring tokenPath = std::wstring(tokensRoot) + L"\\" + voice.tokenName;
 
@@ -444,7 +512,7 @@ STDAPI DllRegisterServer()
         }
     }
 
-    VLOG(L"DllRegisterServer completed: %zu voices x 2 registries", g_voiceCount);
+    VLOG(L"DllRegisterServer completed: %zu voices x 2 registries", activeVoices.size());
     return S_OK;
 }
 
@@ -472,20 +540,28 @@ STDAPI DllUnregisterServer()
 
     // -----------------------------------------------------------------------
     // Step 2: Remove all voice tokens from BOTH registries
+    // Always remove both Kokoro and Piper tokens so a model switch + re-register
+    // does not leave stale tokens behind.
     // -----------------------------------------------------------------------
     const wchar_t *tokenRoots[] = {
         L"SOFTWARE\\Microsoft\\Speech\\Voices\\Tokens",
         L"SOFTWARE\\Microsoft\\Speech_OneCore\\Voices\\Tokens",
     };
 
+    auto unregisterAll = [&](const VoiceDefinition *voices, size_t count, const wchar_t *tokensRoot)
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            std::wstring tokenPath = std::wstring(tokensRoot) + L"\\" + voices[i].tokenName;
+            DeleteKeyRecursive(HKEY_LOCAL_MACHINE, tokenPath.c_str());
+            VLOG(L"Unregistered voice: %s from %s", voices[i].tokenName, tokensRoot);
+        }
+    };
+
     for (const wchar_t *tokensRoot : tokenRoots)
     {
-        for (size_t i = 0; i < g_voiceCount; ++i)
-        {
-            std::wstring tokenPath = std::wstring(tokensRoot) + L"\\" + g_voices[i].tokenName;
-            DeleteKeyRecursive(HKEY_LOCAL_MACHINE, tokenPath.c_str());
-            VLOG(L"Unregistered voice: %s from %s", g_voices[i].tokenName, tokensRoot);
-        }
+        unregisterAll(g_kokoroVoices, g_kokoroVoiceCount, tokensRoot);
+        unregisterAll(g_piperVoices, g_piperVoiceCount, tokensRoot);
     }
 
     VLOG(L"DllUnregisterServer completed");

@@ -20,6 +20,11 @@ pyyaml>=6.0                     # YAML config parsing
 # --- Audio ---
 soundfile>=0.13.0               # WAV/PCM I/O (already installed with kokoro)
 numpy>=1.26.0,<2.0              # Array operations (pinned by kokoro)
+scipy>=1.11.0                   # Resampling Piper's native rate to 24kHz
+
+# --- Piper TTS backend (optional — only needed if default_model=piper) ---
+piper-tts>=1.4,<2                # Ships espeak-ng bundled, no system install needed
+onnxruntime>=1.17.0              # Piper's inference runtime
 
 # --- Utilities ---
 loguru>=0.7.0                   # Better logging with colors + rotation

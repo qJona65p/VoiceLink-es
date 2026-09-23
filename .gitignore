@@ -26,6 +26,9 @@ research/models/
 *.pth
 *.safetensors
 
+# Piper voices test
+server/models/piper
+
 # IDE
 .vscode/
 .idea/

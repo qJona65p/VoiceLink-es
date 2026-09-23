@@ -689,10 +689,38 @@ Paragraph breaks (blank lines) will be preserved as natural pauses in the narrat
       <section id="page-setup" class="page">
         <h1>First-Run Setup</h1>
         <p class="setup-subtitle">
-          VoiceLink needs a few components to work. This wizard downloads and
-          configures everything automatically.
+          Choose your voice engine, then this wizard downloads and configures
+          everything automatically.
         </p>
 
+        <div class="model-picker" id="model-picker">
+          <h3 class="model-picker-title">1. Choose your TTS engine</h3>
+          <div class="model-cards">
+            <button type="button" class="model-card" data-model="piper" id="card-piper">
+              <div class="model-card-badge recommended">Recommended for Spanish</div>
+              <div class="model-card-name">Piper</div>
+              <div class="model-card-tagline">Fast · High-quality Spanish</div>
+              <ul class="model-card-points">
+                <li>Excellent Spanish (Spain &amp; Mexico)</li>
+                <li>Lightweight ONNX models</li>
+                <li>Great CPU performance</li>
+              </ul>
+            </button>
+            <button type="button" class="model-card" data-model="kokoro" id="card-kokoro">
+              <div class="model-card-badge">Best for English</div>
+              <div class="model-card-name">Kokoro</div>
+              <div class="model-card-tagline">Natural English voices</div>
+              <ul class="model-card-points">
+                <li>11 English voices (US &amp; UK)</li>
+                <li>Limited Spanish support</li>
+                <li>~340 MB model download</li>
+              </ul>
+            </button>
+          </div>
+          <p class="model-picker-hint">You can only run one engine at a time. Re-run setup later to switch.</p>
+        </div>
+
+        <h3 class="model-picker-title" style="margin-top: 1.5rem">2. Install components</h3>
         <div class="setup-steps" id="setup-steps-container">
           <!-- Step 1: Python -->
           <div class="setup-step" data-step="python">
@@ -745,8 +773,8 @@ Paragraph breaks (blank lines) will be preserved as natural pauses in the narrat
             </div>
             <div class="step-content">
               <div class="step-title">Python Packages</div>
-              <div class="step-desc">
-                FastAPI, Kokoro TTS engine, and dependencies
+              <div class="step-desc" id="step-desc-deps">
+                FastAPI, TTS engine, and dependencies
               </div>
               <div class="step-progress hidden" id="progress-deps">
                 <div class="progress-bar">
@@ -806,8 +834,8 @@ Paragraph breaks (blank lines) will be preserved as natural pauses in the narrat
             </div>
             <div class="step-content">
               <div class="step-title">Voice Model</div>
-              <div class="step-desc">
-                Kokoro neural voice model (~82 MB download)
+              <div class="step-desc" id="step-desc-model">
+                Select an engine above to see download size
               </div>
               <div class="step-progress hidden" id="progress-model">
                 <div class="progress-bar">

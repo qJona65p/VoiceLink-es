@@ -45,8 +45,8 @@ class ModelSettings(BaseSettings):
 
     # Which model backend to use
     default_model: str = Field(
-        default="kokoro",
-        description="Which TTS model to load on startup: kokoro, qwen3, etc.",
+        default="piper",
+        description="Which TTS model to load on startup: kokoro, piper, qwen3, etc.",
     )
 
     # Kokoro-specific
@@ -68,6 +68,17 @@ class ModelSettings(BaseSettings):
         default=False,
         description="Whether Qwen3 TTS is enabled (requires CUDA GPU).",
     )
+    
+    # Piper-specific
+    piper_voices_dir: Path = Field(
+        default=Path("server/models/piper"),
+        description="Directory containing <voice_id>.onnx / .onnx.json pairs.",
+    )
+    piper_default_voice: str = Field(
+        default="es_MX-claude-high",
+        description="Default Piper voice ID if none specified in request.",
+    )
+
 
     # Device selection
     device: str = Field(

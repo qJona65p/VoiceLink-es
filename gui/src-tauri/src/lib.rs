@@ -90,6 +90,10 @@ struct AppConfig {
     server_port: u16,
     #[serde(default)]
     auto_start: bool,
+    /// Primary TTS backend chosen at first-run setup: "kokoro" or "piper".
+    /// Empty string means the user has not chosen yet.
+    #[serde(default)]
+    selected_model: String,
     #[serde(default)]
     qwen3_enabled: bool,
     #[serde(default = "default_qwen3_tier")]
@@ -117,6 +121,7 @@ impl Default for AppConfig {
                 .to_string(),
             server_port: 7860,
             auto_start: false,
+            selected_model: String::new(),
             qwen3_enabled: false,
             qwen3_model_tier: "standard".to_string(),
             qwen3_installed: false,
@@ -188,6 +193,8 @@ pub struct SetupStatus {
     pub model_downloaded: bool,
     pub server_running: bool,
     pub data_dir: String,
+    /// "kokoro", "piper", or "" if not chosen yet
+    pub selected_model: String,
 }
 
 /// Holds the server process handle so we can stop it later
@@ -1022,7 +1029,7 @@ async fn qwen3_get_status() -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn get_setup_status(config: tauri::State<'_, Mutex<AppConfig>>) -> Result<SetupStatus, String> {
     // Collect file-based checks while holding the lock, then drop it before network IO
-    let (python_ok, deps_ok, server_ok, model_ok, data_dir_str) = {
+    let (python_ok, deps_ok, server_ok, model_ok, data_dir_str, selected) = {
         let cfg = config.lock().unwrap();
 
         let python_ok = cfg.python_exe().exists();
@@ -1034,12 +1041,21 @@ async fn get_setup_status(config: tauri::State<'_, Mutex<AppConfig>>) -> Result<
 
         let server_ok = cfg.server_dir().join("main.py").exists();
 
-        // Check for the .voices_ready marker written by the voicepack download
-        // script. This file only exists after ALL voicepacks + model have been
-        // successfully downloaded from HuggingFace to the local HF cache.
-        let model_ok = cfg.data_dir().join(".voices_ready").exists();
+        // Model-ready markers:
+        //   Kokoro → .voices_ready (HF voicepacks downloaded)
+        //   Piper  → .piper_ready  (onnx voices downloaded)
+        // Also accept legacy .voices_ready when selected_model is empty.
+        let selected = cfg.selected_model.clone();
+        let model_ok = match selected.as_str() {
+            "piper" => cfg.data_dir().join(".piper_ready").exists(),
+            "kokoro" => cfg.data_dir().join(".voices_ready").exists(),
+            _ => {
+                cfg.data_dir().join(".voices_ready").exists()
+                    || cfg.data_dir().join(".piper_ready").exists()
+            }
+        };
 
-        (python_ok, deps_ok, server_ok, model_ok, cfg.data_dir.clone())
+        (python_ok, deps_ok, server_ok, model_ok, cfg.data_dir.clone(), selected)
     }; // MutexGuard dropped here — safe to do async IO now
 
     // Check if server is actually running via HTTP health endpoint (same as Dashboard)
@@ -1062,6 +1078,7 @@ async fn get_setup_status(config: tauri::State<'_, Mutex<AppConfig>>) -> Result<
         model_downloaded: model_ok,
         server_running,
         data_dir: data_dir_str,
+        selected_model: selected,
     })
 }
 
@@ -1568,10 +1585,24 @@ def _patched(self, *a, **kw):
 subprocess.Popen.__init__ = _patched
 import runpy; runpy.run_module('server.main', run_name='__main__', alter_sys=True)
 "#;
+    let model_env = if cfg.selected_model.is_empty() {
+        "kokoro".to_string()
+    } else {
+        cfg.selected_model.clone()
+    };
+
+    // Piper voices are downloaded to <data_dir>/models/piper by the setup wizard.
+    let piper_voices = cfg.data_dir().join("models").join("piper");
+
     let child = std::process::Command::new(python.to_string_lossy().to_string())
         .args(["-c", bootstrap.trim()])
         .current_dir(cfg.data_dir())
         .env("PYTHONPATH", cfg.data_dir())
+        .env("VOICELINK_MODEL__DEFAULT_MODEL", &model_env)
+        .env(
+            "VOICELINK_MODEL__PIPER_VOICES_DIR",
+            piper_voices.to_string_lossy().as_ref(),
+        )
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .creation_flags(0x00000008 | 0x08000000) // DETACHED_PROCESS | CREATE_NO_WINDOW
@@ -1618,6 +1649,115 @@ async fn stop_server(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+
+// ============================================================================
+// Model selection (Kokoro vs Piper) — first-run setup
+// ============================================================================
+
+/// Persist the chosen TTS backend, write the SAPI SelectedModel registry key,
+/// and re-register the COM DLLs so only that model's voices appear in Windows.
+#[tauri::command]
+fn set_selected_model(app: AppHandle, model: String) -> Result<(), String> {
+    let model = model.to_lowercase();
+    if model != "kokoro" && model != "piper" {
+        return Err(format!("Invalid model '{}'. Use 'kokoro' or 'piper'.", model));
+    }
+
+    // 1) Persist to config.json
+    {
+        let config = app.state::<Mutex<AppConfig>>();
+        let mut cfg = config.lock().map_err(|e| e.to_string())?;
+        cfg.selected_model = model.clone();
+        cfg.save()?;
+    }
+
+    // 2) Write HKLM\SOFTWARE\VoiceLink\SelectedModel (read by DllRegisterServer)
+    write_selected_model_registry(&model)?;
+
+    // 3) Re-register both COM DLLs so only the selected voices are registered
+    reregister_sapi_dlls(&app)?;
+
+    Ok(())
+}
+
+fn write_selected_model_registry(model: &str) -> Result<(), String> {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    // Requires admin (perMachine installer). Writes SelectedModel for DllRegisterServer.
+    let (key, _) = hklm
+        .create_subkey(r"SOFTWARE\VoiceLink")
+        .map_err(|e| format!(
+            "Failed to create VoiceLink registry key (run as Administrator?): {}", e
+        ))?;
+    key.set_value("SelectedModel", &model)
+        .map_err(|e| format!("Failed to write SelectedModel: {}", e))?;
+    Ok(())
+}
+
+fn reregister_sapi_dlls(_app: &AppHandle) -> Result<(), String> {
+    // NSIS installs DLLs next to VoiceLink.exe ($INSTDIR)
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(dir) = exe_dir {
+        candidates.push(dir.clone());
+        // Dev / older layouts may nest resources
+        candidates.push(dir.join("resources"));
+    }
+
+    let mut dll64: Option<PathBuf> = None;
+    let mut dll32: Option<PathBuf> = None;
+    for dir in &candidates {
+        let a = dir.join("voicelink_sapi.dll");
+        let b = dir.join("voicelink_sapi_32.dll");
+        if a.exists() && dll64.is_none() {
+            dll64 = Some(a);
+        }
+        if b.exists() && dll32.is_none() {
+            dll32 = Some(b);
+        }
+    }
+
+    let sys_root = std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".to_string());
+    let reg64 = PathBuf::from(&sys_root).join("System32").join("regsvr32.exe");
+    let reg32 = PathBuf::from(&sys_root).join("SysWOW64").join("regsvr32.exe");
+
+    if let Some(dll) = dll64 {
+        // Unregister first so stale tokens from the other model are removed
+        let _ = std::process::Command::new(&reg64)
+            .args(["/u", "/s", &dll.to_string_lossy()])
+            .status();
+        let status = std::process::Command::new(&reg64)
+            .args(["/s", &dll.to_string_lossy()])
+            .status()
+            .map_err(|e| format!("regsvr32 (64) failed: {}", e))?;
+        if !status.success() {
+            return Err(format!(
+                "Failed to register 64-bit SAPI DLL (exit {:?})",
+                status.code()
+            ));
+        }
+    }
+
+    if let Some(dll) = dll32 {
+        if reg32.exists() {
+            let _ = std::process::Command::new(&reg32)
+                .args(["/u", "/s", &dll.to_string_lossy()])
+                .status();
+            let _ = std::process::Command::new(&reg32)
+                .args(["/s", &dll.to_string_lossy()])
+                .status();
+        }
+    }
+
+    Ok(())
+}
+
+
 // ============================================================================
 // Settings — Persist to config.json
 // ============================================================================
@@ -1630,6 +1770,7 @@ fn get_settings(config: tauri::State<'_, Mutex<AppConfig>>) -> Result<serde_json
         "data_dir": cfg.data_dir,
         "server_port": cfg.server_port,
         "auto_start": cfg.auto_start,
+        "selected_model": cfg.selected_model,
         "qwen3_enabled": cfg.qwen3_enabled,
         "qwen3_model_tier": cfg.qwen3_model_tier,
         "qwen3_installed": cfg.qwen3_installed,
@@ -1908,6 +2049,7 @@ pub fn run() {
             open_setup_terminal,
             get_setup_status,
             get_setup_paths,
+            set_selected_model,
             set_data_dir,
             setup_download_file,
             setup_extract_zip,

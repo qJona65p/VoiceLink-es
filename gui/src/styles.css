@@ -1612,3 +1612,100 @@ body {
   background: var(--border);
   border-radius: 3px;
 }
+
+/* ==========================================================================
+   Model picker (setup wizard)
+   ========================================================================== */
+
+.model-picker {
+  margin-bottom: 0.5rem;
+}
+
+.model-picker-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--text-primary, #e8eaed);
+}
+
+.model-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 720px) {
+  .model-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.model-card {
+  text-align: left;
+  background: var(--bg-card, #1e1f26);
+  border: 2px solid var(--border, #2a2d36);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.model-card:hover {
+  border-color: var(--accent, #6c8cff);
+  transform: translateY(-1px);
+}
+
+.model-card.selected {
+  border-color: var(--accent, #6c8cff);
+  box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.25);
+}
+
+.model-card-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  margin-bottom: 0.5rem;
+}
+
+.model-card-badge.recommended {
+  background: rgba(72, 187, 120, 0.2);
+  color: #68d391;
+}
+
+.model-card-name {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.15rem;
+}
+
+.model-card-tagline {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  margin-bottom: 0.6rem;
+}
+
+.model-card-points {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  opacity: 0.9;
+}
+
+.model-picker-hint {
+  font-size: 0.8rem;
+  opacity: 0.65;
+  margin: 0.75rem 0 0 0;
+}
+
+#btn-run-setup:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

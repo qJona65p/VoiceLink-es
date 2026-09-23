@@ -111,11 +111,17 @@ async def lifespan(app: FastAPI):
     # Load the TTS model
     t0 = time.perf_counter()
     try:
-        model = load_model(
-            settings.model.default_model,
-            lang_code=settings.model.kokoro_lang_code,
-            device=settings.model.device,
-        )
+        if settings.model.default_model == "piper":
+            model_kwargs = {
+                "voices_dir": settings.model.piper_voices_dir,
+                "use_cuda": settings.model.device == "cuda",
+            }
+        else:
+            model_kwargs = {
+                "lang_code": settings.model.kokoro_lang_code,
+                "device": settings.model.device,
+            }
+        model = load_model(settings.model.default_model, **model_kwargs)
         set_model(model)
         elapsed = time.perf_counter() - t0
         logger.info(f"Model loaded in {elapsed:.1f}s")

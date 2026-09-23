@@ -5,7 +5,7 @@ import urllib.request
 import json
 import os
 
-VOICES = [
+VOICES_KOKORO = [
     "af_heart",
     "af_bella",
     "af_nicole",
@@ -16,6 +16,10 @@ VOICES = [
     "ef_dora",
     "em_alex",
     "em_santa",
+]
+
+VOICES_PIPER = [
+    "es_MX-claude-high",
 ]
 
 SAMPLE_TEXT = (
@@ -39,6 +43,22 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 SAMPLE_RATE = 24000
 SAMPLE_WIDTH = 2  # 16-bit
 CHANNELS = 1
+
+# Check with a request to /v1/health which model is loaded
+req = urllib.request.Request(
+    "http://127.0.0.1:7860/v1/health",
+    headers={"Content-Type": "application/json"},
+)
+
+try:
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        health = resp.read()
+        
+    if (b'Kokoro' in health): VOICES = VOICES_KOKORO
+    elif (b'Piper' in health): VOICES = VOICES_PIPER
+    else: raise Exception("Model not recognized")
+except Exception as e:
+        print(f"  ERROR reaching the API: {e}")
 
 for voice in VOICES:
     print(f"Generating sample for {voice}...")

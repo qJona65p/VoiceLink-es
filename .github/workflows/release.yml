@@ -85,5 +85,18 @@ jobs:
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.version, '-') }}
           generate_release_notes: true
+          body: |
+            ## VoiceLink ${{ steps.tag.outputs.version }}
+
+            Installer includes **Kokoro** and **Piper** backends. On first launch,
+            the setup wizard lets you choose which model to use:
+
+            | Model | Best for | Voices |
+            |-------|----------|--------|
+            | **Piper** | Spanish quality + speed | en-US, es-ES, es-MX |
+            | **Kokoro** | English quality | en-US, en-GB, limited Spanish |
+
+            The choice is written to `HKLM\SOFTWARE\VoiceLink\SelectedModel` and
+            only the matching SAPI voices are registered.
           files: |
             gui/src-tauri/target/release/bundle/nsis/*.exe
