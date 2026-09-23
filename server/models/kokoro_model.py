@@ -142,8 +142,36 @@ KOKORO_VOICES: list[VoiceInfo] = [
         model="kokoro",
         tags=["british", "warm"],
     ),
+    # Spanish - Female
+    VoiceInfo(
+        id="ef_dora",
+        name="Dora",
+        language="es-ES",
+        gender="female",
+        description="Natural Spanish female voice.",
+        model="kokoro",
+        tags=["spanish"],
+    ),
+    # Spanish - Male
+    VoiceInfo(
+        id="em_alex",
+        name="Alex",
+        language="es-ES",
+        gender="male",
+        description="Natural Spanish male voice.",
+        model="kokoro",
+        tags=["spanish"],
+    ),
+    VoiceInfo(
+        id="em_santa",
+        name="Santa",
+        language="es-ES",
+        gender="male",
+        description="Natural Spanish male voice.",
+        model="kokoro",
+        tags=["spanish"],
+    ),
 ]
-
 
 class KokoroModel(TTSModel):
     """
@@ -160,7 +188,7 @@ class KokoroModel(TTSModel):
         """
         self._lang_code = lang_code
         self._device = device
-        self._pipeline = None
+        self._pipelines = {}
         self._loaded = False
 
     def load(self) -> None:
@@ -169,23 +197,34 @@ class KokoroModel(TTSModel):
             logger.debug("Kokoro already loaded, skipping.")
             return
 
-        logger.info(f"Loading Kokoro model (lang={self._lang_code})...")
+        logger.info(f"Initializing Kokoro model...")
 
-        from kokoro import KPipeline
-
-        self._pipeline = KPipeline(lang_code=self._lang_code)
+        self._pipelines = {}
         self._loaded = True
 
         logger.info("Kokoro model loaded successfully.")
 
     def unload(self) -> None:
         """Release the Kokoro model from memory."""
-        if self._pipeline is not None:
-            del self._pipeline
-            self._pipeline = None
+        if self._pipelines is not None:
+            self._pipelines.clear()
+            self._pipelines = None
             self._loaded = False
-            logger.info("Kokoro model unloaded.")
+            logger.info("Kokoro model and pipelines unloaded.")
 
+    def _get_pipeline(self, voice):
+        lang_code = voice[0] if voice else self._lang_code
+        
+        from kokoro import KPipeline
+
+        if lang_code not in self._pipelines:
+            logger.info(f"Loading Kokoro pipeline for language '{lang_code}'...")
+            self._pipelines[lang_code] = KPipeline(
+                lang_code=lang_code
+            )
+
+        return self._pipelines[lang_code]
+    
     def synthesize(
         self,
         text: str,
@@ -200,7 +239,7 @@ class KokoroModel(TTSModel):
         PCM format: 24kHz, 16-bit signed little-endian, mono.
         This matches SAPI's SPSF_24kHz16BitMono exactly.
         """
-        if not self._loaded or self._pipeline is None:
+        if not self._loaded:
             raise RuntimeError("Kokoro model is not loaded. Call load() first.")
 
         # Default voice
@@ -214,7 +253,10 @@ class KokoroModel(TTSModel):
         # Each tuple corresponds to roughly one sentence/clause.
         # audio is a numpy float32 array in range [-1.0, 1.0] at 24kHz.
         chunk_index = 0
-        for graphemes, phonemes, audio_raw in self._pipeline(
+        
+        pipeline = self._get_pipeline(voice)
+        
+        for graphemes, phonemes, audio_raw in pipeline(
             text, voice=voice, speed=speed
         ):
             if audio_raw is None:

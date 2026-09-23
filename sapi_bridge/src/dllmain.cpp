@@ -79,7 +79,7 @@ struct VoiceDefinition
     const wchar_t *age;         // "Adult", "Child", etc.
 };
 
-// All 11 Kokoro voices, matching server/models/kokoro_model.py
+// All 14 Kokoro voices, matching server/models/kokoro_model.py
 static const VoiceDefinition g_voices[] = {
     // American English Female voices
     {L"VoiceLink_af_heart", L"Heart (Kokoro)", L"af_heart", L"Female", L"409", L"Adult"},
@@ -99,6 +99,13 @@ static const VoiceDefinition g_voices[] = {
     // British English Male voices
     {L"VoiceLink_bm_george", L"George (Kokoro)", L"bm_george", L"Male", L"809", L"Adult"},
     {L"VoiceLink_bm_lewis", L"Lewis (Kokoro)", L"bm_lewis", L"Male", L"809", L"Adult"},
+
+    // Spanish Female voices
+    {L"VoiceLink_ef_dora", L"Dora (Kokoro)", L"ef_dora", L"Female", L"80a", L"Adult"},
+
+    // Spanish Male voices
+    {L"VoiceLink_em_alex", L"Alex (Kokoro)", L"em_alex", L"Male", L"80a", L"Adult"},
+    {L"VoiceLink_em_santa", L"Santa (Kokoro)", L"em_santa", L"Male", L"80a", L"Adult"},
 };
 
 static constexpr size_t g_voiceCount = _countof(g_voices);

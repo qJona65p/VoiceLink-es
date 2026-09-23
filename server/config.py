@@ -52,7 +52,7 @@ class ModelSettings(BaseSettings):
     # Kokoro-specific
     kokoro_lang_code: str = Field(
         default="a",
-        description="Kokoro language: 'a' = American English, 'b' = British English.",
+        description="Kokoro language: 'a' = American English, 'b' = British English, 'e' = Spanish.",
     )
     kokoro_default_voice: str = Field(
         default="af_heart",

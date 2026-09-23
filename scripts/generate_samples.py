@@ -13,6 +13,9 @@ VOICES = [
     "am_michael",
     "bf_emma",
     "bm_george",
+    "ef_dora",
+    "em_alex",
+    "em_santa",
 ]
 
 SAMPLE_TEXT = (
@@ -21,6 +24,13 @@ SAMPLE_TEXT = (
     "and the smell of aged paper filled every room. "
     "It was the kind of place where you could lose an entire afternoon "
     "without even noticing."
+)
+
+SAMPLE_TEXT_ES = (
+    "En un futuro desolado, miles de años después de que una invasión alienígena obligara a la humanidad a abandonar la Tierra y refugiarse en la Luna."
+    "Para recuperar su hogar, los humanos crearon el proyecto YoRHa,"
+    "un ejército de androides de combate altamente avanzados que libran una guerra subsidiaria interminable"
+    "contra las formas de vida mecánicas creadas por los invasores."
 )
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "docs", "audio")
@@ -33,7 +43,7 @@ CHANNELS = 1
 for voice in VOICES:
     print(f"Generating sample for {voice}...")
     payload = json.dumps({
-        "text": SAMPLE_TEXT,
+        "text": SAMPLE_TEXT if voice[0] != 'e' else SAMPLE_TEXT_ES,
         "voice": voice,
         "speed": 1.0,
         "format": "pcm_24k_16bit",

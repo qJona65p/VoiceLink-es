@@ -818,6 +818,8 @@ voices = [
     'am_adam', 'am_michael',
     'bf_emma', 'bf_isabella',
     'bm_george', 'bm_lewis',
+    'ef_dora',
+    'em_alex', 'em_santa',
 ]
 
 print('Downloading Kokoro model...', flush=True)
